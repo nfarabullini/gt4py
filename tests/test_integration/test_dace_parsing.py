@@ -23,10 +23,12 @@ import gt4py.config
 from gt4py import gtscript
 from gt4py import storage as gt_storage
 from gt4py.gtscript import PARALLEL, computation, interval
+from gt4py.storage import utils as storage_utils
+
+from ..storage_test_utils import NdarraySubclassOriginWrapper, OriginWrapper
 
 
 dace = pytest.importorskip("dace")
-
 
 pytestmark = pytest.mark.usefixtures("dace_env")
 
@@ -81,20 +83,25 @@ def test_basic(backend):
         with computation(PARALLEL), interval(...):
             outp = par  # noqa F841: local variable 'outp' is assigned to but never used
 
-    outp = gt_storage.zeros(
-        dtype=np.float64, shape=(10, 10, 10), default_origin=(0, 0, 0), backend=backend
+    # DaCe in the currently tagged version of this repo (~=0.13 doesn't support non-numpy arrays)
+    wrapper_type = OriginWrapper if "gpu" in backend else NdarraySubclassOriginWrapper
+
+    outp = wrapper_type(
+        array=gt_storage.zeros(
+            dtype=np.float64, shape=(10, 10, 10), aligned_index=(0, 0, 0), backend=backend
+        ),
+        origin=(0, 0, 0),
     )
 
     inp = 7.0
-
-    outp.host_to_device()
 
     @dace.program(device=dace.DeviceType.GPU if "gpu" in backend else dace.DeviceType.CPU)
     def call_stencil_object(locoutp, locinp):
         defn(locoutp, par=locinp)
 
     call_stencil_object(locoutp=outp, locinp=inp)
-    outp.device_to_host(force=True)
+    outp = storage_utils.cpu_copy(outp)
+
     assert np.allclose(outp, 7.0)
 
 
@@ -105,16 +112,27 @@ def test_origin_offsetting_frozen(dace_stencil, domain, outp_origin):
     frozen_stencil = dace_stencil.freeze(
         domain=domain, origin={"inp": (0, 0, 0), "outp": outp_origin}
     )
-    inp = gt_storage.from_array(
-        data=7.0, dtype=np.float64, shape=(10, 10, 10), default_origin=(0, 0, 0), backend=backend
+
+    # DaCe in the currently tagged version of this repo (~=0.13 doesn't support non-numpy arrays)
+    wrapper_type = OriginWrapper if "gpu" in backend else NdarraySubclassOriginWrapper
+
+    inp = wrapper_type(
+        array=gt_storage.from_array(
+            data=7.0,
+            dtype=np.float64,
+            shape=(10, 10, 10),
+            aligned_index=(0, 0, 0),
+            backend=backend,
+        ),
+        origin=(0, 0, 0),
     )
 
-    outp = gt_storage.zeros(
-        dtype=np.float64, shape=(10, 10, 10), default_origin=(0, 0, 0), backend=backend
+    outp = wrapper_type(
+        array=gt_storage.zeros(
+            dtype=np.float64, shape=(10, 10, 10), aligned_index=(0, 0, 0), backend=backend
+        ),
+        origin=(0, 0, 0),
     )
-
-    inp.host_to_device()
-    outp.host_to_device()
 
     @dace.program(device=dace.DeviceType.GPU if "gpu" in backend else dace.DeviceType.CPU)
     def call_frozen_stencil():
@@ -122,12 +140,13 @@ def test_origin_offsetting_frozen(dace_stencil, domain, outp_origin):
 
     call_frozen_stencil()
 
-    outp.device_to_host(force=True)
+    inp = storage_utils.cpu_copy(inp)
+    outp = storage_utils.cpu_copy(outp)
 
     assert np.allclose(inp, 7.0)
 
     assert np.allclose(
-        np.asarray(outp)[
+        outp[
             outp_origin[0] : outp_origin[0] + domain[0],
             outp_origin[1] : outp_origin[1] + domain[1],
             outp_origin[2] : outp_origin[2] + domain[2],
@@ -135,7 +154,7 @@ def test_origin_offsetting_frozen(dace_stencil, domain, outp_origin):
         7.0,
     )
 
-    assert np.sum(np.asarray(outp), axis=(0, 1, 2)) == np.prod(domain) * 7.0
+    assert np.sum(outp, axis=(0, 1, 2)) == np.prod(domain) * 7.0
 
 
 @pytest.mark.parametrize("domain", [(0, 2, 3), (3, 3, 3), (1, 1, 1)])
@@ -146,17 +165,28 @@ def test_origin_offsetting_nofrozen(dace_stencil, domain, outp_origin):
         pytest.skip("Random failures on daint-ci, see github issue #848.")
 
     backend = dace_stencil.backend
-    inp = gt_storage.from_array(
-        data=7.0, dtype=np.float64, shape=(10, 10, 10), default_origin=(0, 0, 0), backend=backend
+
+    # DaCe in the currently tagged version of this repo (~=0.13 doesn't support non-numpy arrays)
+    wrapper_type = OriginWrapper if "gpu" in backend else NdarraySubclassOriginWrapper
+
+    inp = wrapper_type(
+        array=gt_storage.from_array(
+            data=7.0,
+            dtype=np.float64,
+            shape=(10, 10, 10),
+            aligned_index=(0, 0, 0),
+            backend=backend,
+        ),
+        origin=(0, 0, 0),
     )
-    outp = gt_storage.zeros(
-        dtype=np.float64, shape=(10, 10, 10), default_origin=(0, 0, 0), backend=backend
+    outp = wrapper_type(
+        array=gt_storage.zeros(
+            dtype=np.float64, shape=(10, 10, 10), aligned_index=(0, 0, 0), backend=backend
+        ),
+        origin=(0, 0, 0),
     )
 
     origin = {"inp": (0, 0, 0), "outp": outp_origin}
-
-    inp.host_to_device()
-    outp.host_to_device()
 
     @dace.program(device=dace.DeviceType.GPU if "gpu" in backend else dace.DeviceType.CPU)
     def call_stencil_object():
@@ -164,18 +194,19 @@ def test_origin_offsetting_nofrozen(dace_stencil, domain, outp_origin):
 
     call_stencil_object()
 
-    outp.device_to_host(force=True)
+    inp = storage_utils.cpu_copy(inp)
+    outp = storage_utils.cpu_copy(outp)
 
     assert np.allclose(inp, 7.0)
     assert np.allclose(
-        np.asarray(outp)[
+        outp[
             outp_origin[0] : outp_origin[0] + domain[0],
             outp_origin[1] : outp_origin[1] + domain[1],
             outp_origin[2] : outp_origin[2] + domain[2],
         ],
         7.0,
     )
-    assert np.sum(np.asarray(outp), axis=(0, 1, 2)) == np.prod(domain) * 7.0
+    assert np.sum(outp, axis=(0, 1, 2)) == np.prod(domain) * 7.0
 
 
 @pytest.mark.parametrize(
@@ -198,14 +229,25 @@ def test_optional_arg_noprovide(backend):
         origin={"inp": (2, 2, 0), "outp": (2, 2, 0), "unused_field": (0, 0, 0)},
     )
 
-    inp = gt_storage.from_array(
-        data=7.0, dtype=np.float64, shape=(10, 10, 10), default_origin=(0, 0, 0), backend=backend
+    # DaCe in the currently tagged version of this repo (~=0.13 doesn't support non-numpy arrays)
+    wrapper_type = OriginWrapper if "gpu" in backend else NdarraySubclassOriginWrapper
+
+    inp = wrapper_type(
+        array=gt_storage.from_array(
+            data=7.0,
+            dtype=np.float64,
+            shape=(10, 10, 10),
+            aligned_index=(0, 0, 0),
+            backend=backend,
+        ),
+        origin=(0, 0, 0),
     )
-    outp = gt_storage.zeros(
-        dtype=np.float64, shape=(10, 10, 10), default_origin=(0, 0, 0), backend=backend
+    outp = wrapper_type(
+        array=gt_storage.zeros(
+            dtype=np.float64, shape=(10, 10, 10), aligned_index=(0, 0, 0), backend=backend
+        ),
+        origin=(0, 0, 0),
     )
-    inp.host_to_device()
-    outp.host_to_device()
 
     @dace.program(device=dace.DeviceType.GPU if "gpu" in backend else dace.DeviceType.CPU)
     def call_frozen_stencil():
@@ -213,7 +255,8 @@ def test_optional_arg_noprovide(backend):
 
     call_frozen_stencil()
 
-    outp.device_to_host(force=True)
+    inp = storage_utils.cpu_copy(inp)
+    outp = storage_utils.cpu_copy(outp)
 
     assert np.allclose(inp, 7.0)
     assert np.allclose(np.asarray(outp)[2:5, 2:5, :], 7.0)
@@ -240,17 +283,31 @@ def test_optional_arg_provide(backend):
         origin={"inp": (2, 2, 0), "outp": (2, 2, 0), "unused_field": (0, 0, 0)},
     )
 
-    inp = gt_storage.from_array(
-        data=7.0, dtype=np.float64, shape=(10, 10, 10), default_origin=(0, 0, 0), backend=backend
+    # DaCe in the currently tagged version of this repo (~=0.13 doesn't support non-numpy arrays)
+    wrapper_type = OriginWrapper if "gpu" in backend else NdarraySubclassOriginWrapper
+
+    inp = wrapper_type(
+        array=gt_storage.from_array(
+            data=7.0,
+            dtype=np.float64,
+            shape=(10, 10, 10),
+            aligned_index=(0, 0, 0),
+            backend=backend,
+        ),
+        origin=(0, 0, 0),
     )
-    outp = gt_storage.zeros(
-        dtype=np.float64, shape=(10, 10, 10), default_origin=(0, 0, 0), backend=backend
+    outp = wrapper_type(
+        array=gt_storage.zeros(
+            dtype=np.float64, shape=(10, 10, 10), aligned_index=(0, 0, 0), backend=backend
+        ),
+        origin=(0, 0, 0),
     )
-    unused_field = gt_storage.zeros(
-        dtype=np.float64, shape=(10, 10, 10), default_origin=(0, 0, 0), backend=backend
+    unused_field = wrapper_type(
+        array=gt_storage.zeros(
+            dtype=np.float64, shape=(10, 10, 10), aligned_index=(0, 0, 0), backend=backend
+        ),
+        origin=(0, 0, 0),
     )
-    inp.host_to_device()
-    outp.host_to_device()
 
     @dace.program(device=dace.DeviceType.GPU if "gpu" in backend else dace.DeviceType.CPU)
     def call_frozen_stencil():
@@ -258,7 +315,8 @@ def test_optional_arg_provide(backend):
 
     call_frozen_stencil()
 
-    outp.device_to_host(force=True)
+    inp = storage_utils.cpu_copy(inp)
+    outp = storage_utils.cpu_copy(outp)
 
     assert np.allclose(inp, 7.0)
     assert np.allclose(np.asarray(outp)[2:5, 2:5, :], 7.0)
@@ -270,6 +328,8 @@ def test_optional_arg_provide(backend):
     ["dace:cpu", pytest.param("dace:gpu", marks=[pytest.mark.requires_gpu])],
 )
 def test_optional_arg_provide_aot(backend):
+    import dace.data
+
     @gtscript.stencil(backend=backend)
     def stencil(
         inp: gtscript.Field[np.float64],
@@ -285,40 +345,37 @@ def test_optional_arg_provide_aot(backend):
         origin={"inp": (2, 2, 0), "outp": (2, 2, 0), "unused_field": (0, 0, 0)},
     )
 
-    inp = gt_storage.from_array(
-        data=7.0, dtype=np.float64, shape=(10, 10, 10), default_origin=(0, 0, 0), backend=backend
-    )
-    outp = gt_storage.zeros(
-        dtype=np.float64, shape=(10, 10, 10), default_origin=(0, 0, 0), backend=backend
-    )
-    unused_field = gt_storage.zeros(
-        dtype=np.float64, shape=(10, 10, 10), default_origin=(0, 0, 0), backend=backend
-    )
-    inp.host_to_device()
-    outp.host_to_device()
+    # DaCe in the currently tagged version of this repo (~=0.13 doesn't support non-numpy arrays)
+    wrapper_type = OriginWrapper if "gpu" in backend else NdarraySubclassOriginWrapper
 
-    storage = dace.StorageType.GPU_Global if "gpu" in backend else dace.StorageType.CPU_Heap
+    inp = wrapper_type(
+        array=gt_storage.from_array(
+            data=7.0,
+            dtype=np.float64,
+            shape=(10, 10, 10),
+            aligned_index=(0, 0, 0),
+            backend=backend,
+        ),
+        origin=(0, 0, 0),
+    )
+    outp = wrapper_type(
+        array=gt_storage.zeros(
+            dtype=np.float64, shape=(10, 10, 10), aligned_index=(0, 0, 0), backend=backend
+        ),
+        origin=(0, 0, 0),
+    )
+    unused_field = wrapper_type(
+        array=gt_storage.zeros(
+            dtype=np.float64, shape=(10, 10, 10), aligned_index=(0, 0, 0), backend=backend
+        ),
+        origin=(0, 0, 0),
+    )
 
     @dace.program(device=dace.DeviceType.GPU if "gpu" in backend else dace.DeviceType.CPU)
     def call_frozen_stencil(
-        inp: dace.data.Array(
-            shape=inp.shape,
-            strides=tuple(s // inp.itemsize for s in inp.strides),
-            dtype=dace.float64,
-            storage=storage,
-        ),
-        outp: dace.data.Array(
-            shape=outp.shape,
-            strides=tuple(s // outp.itemsize for s in outp.strides),
-            dtype=dace.float64,
-            storage=storage,
-        ),
-        unused_field: dace.data.Array(
-            shape=unused_field.shape,
-            strides=tuple(s // unused_field.itemsize for s in unused_field.strides),
-            dtype=dace.float64,
-            storage=storage,
-        ),  # type: ignore
+        inp: dace.data.create_datadescriptor(inp),
+        outp: dace.data.create_datadescriptor(outp),
+        unused_field: dace.data.create_datadescriptor(unused_field),
         unused_par: dace.float64,  # type: ignore
     ):
         frozen_stencil(inp=inp, unused_field=unused_field, outp=outp, unused_par=unused_par)
@@ -326,7 +383,8 @@ def test_optional_arg_provide_aot(backend):
     csdfg = call_frozen_stencil.compile()
     csdfg(inp=inp, outp=outp, unused_field=unused_field, unused_par=7.0)
 
-    outp.device_to_host(force=True)
+    inp = storage_utils.cpu_copy(inp)
+    outp = storage_utils.cpu_copy(outp)
 
     assert np.allclose(inp, 7.0)
     assert np.allclose(np.asarray(outp)[2:5, 2:5, :], 7.0)
@@ -343,18 +401,24 @@ def test_nondace_raises():
         domain=(3, 3, 3), origin={"inp": (0, 0, 0), "outp": (0, 0, 0)}
     )
 
-    inp = gt_storage.from_array(
-        data=7.0,
-        dtype=np.float64,
-        shape=(10, 10, 10),
-        default_origin=(0, 0, 0),
-        backend="numpy",
+    inp = NdarraySubclassOriginWrapper(
+        array=gt_storage.from_array(
+            data=7.0,
+            dtype=np.float64,
+            shape=(10, 10, 10),
+            aligned_index=(0, 0, 0),
+            backend="numpy",
+        ),
+        origin=(0, 0, 0),
     )
-    outp = gt_storage.zeros(
-        dtype=np.float64,
-        shape=(10, 10, 10),
-        default_origin=(0, 0, 0),
-        backend="numpy",
+    outp = NdarraySubclassOriginWrapper(
+        array=gt_storage.zeros(
+            dtype=np.float64,
+            shape=(10, 10, 10),
+            aligned_index=(0, 0, 0),
+            backend="numpy",
+        ),
+        origin=(0, 0, 0),
     )
 
     @dace.program
