@@ -1388,11 +1388,19 @@ def fendef_embedded(fun: Callable[..., None], *args: Any, **kwargs: Any):
                     out.field_setitem(ordered_indices, res)
                 else:
                     col_pos = pos.copy()
-                    for k in column.col_range:
-                        col_pos[column.axis] = k
-                        assert _is_concrete_position(col_pos)
-                        ordered_indices = get_ordered_indices(out.axes, col_pos)
-                        out.field_setitem(ordered_indices, res[k])
+                    if isinstance(res, tuple):
+                        for item_i in range(len(res)):
+                            for k in column.col_range:
+                                col_pos[column.axis] = k
+                                assert _is_concrete_position(col_pos)
+                                ordered_indices = get_ordered_indices(out.axes, col_pos)
+                                out.data[item_i].field_setitem(ordered_indices, res[item_i][k])
+                    else:
+                        for k in column.col_range:
+                            col_pos[column.axis] = k
+                            assert _is_concrete_position(col_pos)
+                            ordered_indices = get_ordered_indices(out.axes, col_pos)
+                            out.field_setitem(ordered_indices, res[k])
 
         ctx = cvars.copy_context()
         ctx.run(_closure_runner)
