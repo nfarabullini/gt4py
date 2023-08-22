@@ -24,6 +24,8 @@ from gt4py.next import (
     FieldOffset,
     astype,
     broadcast,
+    common,
+    errors,
     float32,
     float64,
     int32,
@@ -31,10 +33,8 @@ from gt4py.next import (
     neighbor_sum,
     where,
 )
-from gt4py.next.common import GTTypeError
 from gt4py.next.ffront.ast_passes import single_static_assign as ssa
 from gt4py.next.ffront.experimental import as_offset
-from gt4py.next.ffront.foast_passes.type_deduction import FieldOperatorTypeDeductionError
 from gt4py.next.ffront.func_to_foast import FieldOperatorParser
 from gt4py.next.type_system import type_info, type_specifications as ts
 
@@ -101,6 +101,7 @@ def callable_type_info_cases():
     float_type = ts.ScalarType(kind=ts.ScalarKind.FLOAT64)
     int_type = ts.ScalarType(kind=ts.ScalarKind.INT64)
     field_type = ts.FieldType(dims=[Dimension("I")], dtype=float_type)
+    tuple_type = ts.TupleType(types=[bool_type, field_type])
     nullary_func_type = ts.FunctionType(
         pos_only_args=[], pos_or_kw_args={}, kw_only_args={}, returns=ts.VoidType()
     )
@@ -118,6 +119,9 @@ def callable_type_info_cases():
         pos_or_kw_args={"foo": int_type},
         kw_only_args={"bar": float_type},
         returns=ts.VoidType(),
+    )
+    unary_tuple_arg_func_type = ts.FunctionType(
+        pos_only_args=[tuple_type], pos_or_kw_args={}, kw_only_args={}, returns=ts.VoidType()
     )
     fieldop_type = gt4py.next.ffront.type_specifications.FieldOperatorType(
         definition=ts.FunctionType(
@@ -283,6 +287,31 @@ def callable_type_info_cases():
             [],
             ts.VoidType(),
         ),
+        (
+            unary_tuple_arg_func_type,
+            [tuple_type],
+            {},
+            [],
+            ts.VoidType(),
+        ),
+        (
+            unary_tuple_arg_func_type,
+            [ts.TupleType(types=[float_type, field_type])],
+            {},
+            [
+                "Expected 0-th argument to be of type `tuple\[bool, Field\[\[I\], float64\]\]`, but got `tuple\[float64, Field\[\[I\], float64\]\]`"
+            ],
+            ts.VoidType(),
+        ),
+        (
+            unary_tuple_arg_func_type,
+            [int_type],
+            {},
+            [
+                "Expected 0-th argument to be of type `tuple\[bool, Field\[\[I\], float64\]\]`, but got `int64`"
+            ],
+            ts.VoidType(),
+        ),
         # field operator
         (fieldop_type, [field_type, float_type], {}, [], field_type),
         # scan operator
@@ -391,7 +420,7 @@ def test_accept_args(
 
     if len(expected) > 0:
         with pytest.raises(
-            GTTypeError,
+            ValueError,
         ) as exc_info:
             type_info.accepts_args(
                 func_type, with_args=args, with_kwargs=kwargs, raise_exception=True
@@ -433,51 +462,6 @@ def test_unpack_assign():
     )
 
 
-def dimension_promotion_cases() -> (
-    list[tuple[list[list[Dimension]], list[Dimension] | None, None | Pattern]]
-):
-    raw_list = [
-        # list of list of dimensions, expected result, expected error message
-        ([["I", "J"], ["I"]], ["I", "J"], None),
-        ([["I", "J"], ["J"]], ["I", "J"], None),
-        ([["I", "J"], ["J", "K"]], ["I", "J", "K"], None),
-        (
-            [["I", "J"], ["J", "I"]],
-            None,
-            r"The following dimensions appear in contradicting order: I, J.",
-        ),
-        (
-            [["I", "K"], ["J", "K"]],
-            None,
-            r"Could not determine order of the following dimensions: I, J",
-        ),
-    ]
-    # transform dimension names into Dimension objects
-    return [
-        (
-            [[Dimension(el) for el in arg] for arg in args],
-            [Dimension(el) for el in result] if result else result,
-            msg,
-        )
-        for args, result, msg in raw_list
-    ]
-
-
-@pytest.mark.parametrize("dim_list,expected_result,expected_error_msg", dimension_promotion_cases())
-def test_dimension_promotion(
-    dim_list: list[list[Dimension]],
-    expected_result: Optional[list[Dimension]],
-    expected_error_msg: Optional[str],
-):
-    if expected_result:
-        assert type_info.promote_dims(*dim_list) == expected_result
-    else:
-        with pytest.raises(Exception) as exc_info:
-            type_info.promote_dims(*dim_list)
-
-        assert exc_info.match(expected_error_msg)
-
-
 def test_assign_tuple():
     def temp_tuple(a: Field[[TDim], float64], b: Field[[TDim], int64]):
         tmp = a, b
@@ -506,7 +490,7 @@ def test_adding_bool():
         return a + b
 
     with pytest.raises(
-        FieldOperatorTypeDeductionError,
+        errors.DSLError,
         match=(r"Type Field\[\[TDim\], bool\] can not be used in operator `\+`!"),
     ):
         _ = FieldOperatorParser.apply_to_function(add_bools)
@@ -521,7 +505,7 @@ def test_binop_nonmatching_dims():
         return a + b
 
     with pytest.raises(
-        FieldOperatorTypeDeductionError,
+        errors.DSLError,
         match=(
             r"Could not promote `Field\[\[X], float64\]` and `Field\[\[Y\], float64\]` to common type in call to +."
         ),
@@ -534,8 +518,8 @@ def test_bitopping_float():
         return a & b
 
     with pytest.raises(
-        FieldOperatorTypeDeductionError,
-        match=(r"Type Field\[\[TDim\], float64\] can not be used in operator `\&`! "),
+        errors.DSLError,
+        match=(r"Type Field\[\[TDim\], float64\] can not be used in operator `\&`!"),
     ):
         _ = FieldOperatorParser.apply_to_function(float_bitop)
 
@@ -545,7 +529,7 @@ def test_signing_bool():
         return -a
 
     with pytest.raises(
-        FieldOperatorTypeDeductionError,
+        errors.DSLError,
         match=r"Incompatible type for unary operator `\-`: `Field\[\[TDim\], bool\]`!",
     ):
         _ = FieldOperatorParser.apply_to_function(sign_bool)
@@ -556,7 +540,7 @@ def test_notting_int():
         return not a
 
     with pytest.raises(
-        FieldOperatorTypeDeductionError,
+        errors.DSLError,
         match=r"Incompatible type for unary operator `not`: `Field\[\[TDim\], int64\]`!",
     ):
         _ = FieldOperatorParser.apply_to_function(not_int)
@@ -628,7 +612,7 @@ def test_mismatched_literals():
         return float32("1.0") + float64("1.0")
 
     with pytest.raises(
-        FieldOperatorTypeDeductionError,
+        errors.DSLError,
         match=(r"Could not promote `float32` and `float64` to common type in call to +."),
     ):
         _ = FieldOperatorParser.apply_to_function(mismatched_lit)
@@ -658,7 +642,7 @@ def test_broadcast_disjoint():
         return broadcast(a, (BDim, CDim))
 
     with pytest.raises(
-        FieldOperatorTypeDeductionError,
+        errors.DSLError,
         match=r"Expected broadcast dimension is missing",
     ):
         _ = FieldOperatorParser.apply_to_function(disjoint_broadcast)
@@ -673,7 +657,7 @@ def test_broadcast_badtype():
         return broadcast(a, (BDim, CDim))
 
     with pytest.raises(
-        FieldOperatorTypeDeductionError,
+        errors.DSLError,
         match=r"Expected all broadcast dimensions to be of type Dimension.",
     ):
         _ = FieldOperatorParser.apply_to_function(badtype_broadcast)
@@ -739,7 +723,7 @@ def test_where_bad_dim():
         return where(a, ((5.0, 9.0), (b, 6.0)), b)
 
     with pytest.raises(
-        FieldOperatorTypeDeductionError,
+        errors.DSLError,
         match=r"Return arguments need to be of same type",
     ):
         _ = FieldOperatorParser.apply_to_function(bad_dim_where)
@@ -794,7 +778,7 @@ def test_mod_floats():
         return inp % 3.0
 
     with pytest.raises(
-        FieldOperatorTypeDeductionError,
+        errors.DSLError,
         match=r"Type float64 can not be used in operator `%`",
     ):
         _ = FieldOperatorParser.apply_to_function(modulo_floats)
@@ -804,7 +788,7 @@ def test_undefined_symbols():
     def return_undefined():
         return undefined_symbol
 
-    with pytest.raises(FieldOperatorTypeDeductionError, match="Undeclared symbol"):
+    with pytest.raises(errors.DSLError, match="Undeclared symbol"):
         _ = FieldOperatorParser.apply_to_function(return_undefined)
 
 
@@ -817,7 +801,7 @@ def test_as_offset_dim():
         return a(as_offset(Boff, b))
 
     with pytest.raises(
-        FieldOperatorTypeDeductionError,
+        errors.DSLError,
         match=f"not in list of offset field dimensions",
     ):
         _ = FieldOperatorParser.apply_to_function(as_offset_dim)
@@ -832,7 +816,7 @@ def test_as_offset_dtype():
         return a(as_offset(Boff, b))
 
     with pytest.raises(
-        FieldOperatorTypeDeductionError,
+        errors.DSLError,
         match=f"Excepted integer for offset field dtype",
     ):
         _ = FieldOperatorParser.apply_to_function(as_offset_dtype)

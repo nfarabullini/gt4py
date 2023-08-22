@@ -17,7 +17,7 @@ from typing import Iterator, cast
 
 import gt4py.next.ffront.type_specifications as ts_ffront
 import gt4py.next.type_system.type_specifications as ts
-from gt4py.next.common import Dimension, GTTypeError
+from gt4py.next import common
 from gt4py.next.type_system import type_info
 
 
@@ -36,13 +36,22 @@ def promote_zero_dims(
 
     def promote_arg(param: ts.TypeSpec, arg: ts.TypeSpec) -> ts.TypeSpec:
         def _as_field(arg_el: ts.TypeSpec, path: tuple[int, ...]) -> ts.TypeSpec:
-            param_el = reduce(lambda type_, idx: type_.types[idx], path, param)  # type: ignore[attr-defined]
+            param_el = param
+            for idx in path:
+                if not isinstance(param_el, ts.TupleType):
+                    # The parameter has a different structure than the actual argument. Just return
+                    # the argument unpromoted and let the further error handling take care of printing
+                    # a meaningful error.
+                    return arg_el
+                param_el = param_el.types[idx]
 
-            if _is_zero_dim_field(param_el) and type_info.is_number(arg_el):
+            if _is_zero_dim_field(param_el) and (
+                type_info.is_number(arg_el) or type_info.is_logical(arg_el)
+            ):
                 if type_info.extract_dtype(param_el) == type_info.extract_dtype(arg_el):
                     return param_el
                 else:
-                    raise GTTypeError(f"{arg_el} is not compatible with {param_el}.")
+                    raise ValueError(f"{arg_el} is not compatible with {param_el}.")
             return arg_el
 
         return type_info.apply_to_primitive_constituents(arg, _as_field, with_path_arg=True)
@@ -147,7 +156,7 @@ def _scan_param_promotion(param: ts.TypeSpec, arg: ts.TypeSpec) -> ts.FieldType 
     --------
     >>> _scan_param_promotion(
     ...     ts.ScalarType(kind=ts.ScalarKind.INT64),
-    ...     ts.FieldType(dims=[Dimension("I")], dtype=ts.ScalarKind.FLOAT64)
+    ...     ts.FieldType(dims=[common.Dimension("I")], dtype=ts.ScalarKind.FLOAT64)
     ... )
     FieldType(dims=[Dimension(value='I', kind=<DimensionKind.HORIZONTAL: 'horizontal'>)], dtype=ScalarType(kind=<ScalarKind.INT64: 64>, shape=None))
     """
@@ -164,7 +173,7 @@ def _scan_param_promotion(param: ts.TypeSpec, arg: ts.TypeSpec) -> ts.FieldType 
             # argument type differ. As such we can not extract the dimensions
             # and just return a generic field shown in the error later on.
             # TODO: we want some generic field type here, but our type system does not support it yet.
-            return ts.FieldType(dims=[Dimension("...")], dtype=dtype)
+            return ts.FieldType(dims=[common.Dimension("...")], dtype=dtype)
 
     return type_info.apply_to_primitive_constituents(param, _as_field, with_path_arg=True)
 
@@ -207,8 +216,8 @@ def function_signature_incompatibilities_scanop(
         for el in type_info.primitive_constituents(arg)
     ]
     try:
-        type_info.promote_dims(*arg_dims)
-    except GTTypeError as e:
+        common.promote_dims(*arg_dims)
+    except ValueError as e:
         yield e.args[0]
 
     assert len(scan_pass_type.pos_only_args) == 0
@@ -270,7 +279,7 @@ def return_type_scanop(
     with_kwargs: dict[str, ts.TypeSpec],
 ):
     carry_dtype = callable_type.definition.returns
-    promoted_dims = type_info.promote_dims(
+    promoted_dims = common.promote_dims(
         *(
             type_info.extract_dims(el)
             for arg in with_args + list(with_kwargs.values())
