@@ -1407,7 +1407,7 @@ def fendef_embedded(fun: Callable[..., None], *args: Any, **kwargs: Any):
                             for k in column.col_range:
                                 col_pos[column.axis] = k
                                 assert _is_concrete_position(col_pos)
-                                out.field_setitem(col_pos, res[item_i][k])
+                                out.data[item_i].field_setitem(col_pos, res[item_i][k])
                     else:
                         for k in column.col_range:
                             col_pos[column.axis] = k
