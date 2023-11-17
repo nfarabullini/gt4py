@@ -132,4 +132,4 @@ def test_math_function_builtins_execution(cartesian_case, builtin_name: str, inp
 
     builtin_field_op(*inps, out=out, offset_provider={})
 
-    assert np.allclose(np.asarray(out), expected)
+    assert np.allclose(out.asnumpy(), expected)
