@@ -837,6 +837,7 @@ class FieldOperatorTypeDeduction(traits.VisitorWithSymbolTableTrait, NodeTransla
 
         return_type = with_altered_scalar_kind(
             value.type, getattr(ts.ScalarKind, new_type.id.upper())
+        )
 
         return foast.Call(
             func=node.func,
