@@ -823,12 +823,10 @@ class FieldOperatorTypeDeduction(traits.VisitorWithSymbolTableTrait, NodeTransla
         return self._visit_reduction(node, **kwargs)
 
     def _visit_astype(self, node: foast.Call, **kwargs) -> foast.Call:
-        return_type: ts.TupleType | ts.ScalarType | ts.FieldType
         value, new_type = node.args
         assert isinstance(
-            value.type, (ts.FieldType, ts.ScalarType, ts.TupleType)
+            value.type, (ts.FieldType, ts.ScalarType)
         )  # already checked using generic mechanism
-
         if not isinstance(new_type, foast.Name) or new_type.id.upper() not in [
             kind.name for kind in ts.ScalarKind
         ]:
@@ -837,12 +835,8 @@ class FieldOperatorTypeDeduction(traits.VisitorWithSymbolTableTrait, NodeTransla
                 f"Invalid call to `astype`. Second argument must be a scalar type, but got {new_type}.",
             )
 
-        return_type = type_info.apply_to_primitive_constituents(
-            value.type,
-            lambda primitive_type: with_altered_scalar_kind(
-                primitive_type, getattr(ts.ScalarKind, new_type.id.upper())
-            ),
-        )
+        return_type = with_altered_scalar_kind(
+            value.type, getattr(ts.ScalarKind, new_type.id.upper())
 
         return foast.Call(
             func=node.func,
