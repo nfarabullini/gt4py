@@ -196,7 +196,7 @@ def where(
 
 
 @builtin_function
-def astype(field: Field | gt4py_defs.ScalarT, type_: type, /,) -> Field:
+def astype(field: Field | gt4py_defs.ScalarT, type_: type, /) -> Field:
     raise NotImplementedError()
 
 
