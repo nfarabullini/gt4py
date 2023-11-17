@@ -318,12 +318,11 @@ def builtin_undefined(*args: Any) -> Any:
 _GENERAL_BUILTIN_MAPPING: dict[
     str, Callable[["PythonTaskletCodegen", itir.Expr, list[itir.Expr]], list[ValueExpr]]
 ] = {
-    "can_deref": builtin_can_deref,
-    "cast_": builtin_cast,
-    "if_": builtin_if,
     "make_tuple": builtin_make_tuple,
-    "neighbors": builtin_neighbors,
     "tuple_get": builtin_tuple_get,
+    "if_": builtin_if,
+    "cast_": builtin_cast,
+    "neighbors": builtin_neighbors,
 }
 
 
