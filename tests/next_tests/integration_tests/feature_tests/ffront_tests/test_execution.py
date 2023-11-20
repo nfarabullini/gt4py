@@ -363,8 +363,8 @@ def test_astype_on_tuples(cartesian_case):  # noqa: F811 # fixtures
 
     a = cases.allocate(cartesian_case, cast_tuple, "a")()
     b = cases.allocate(cartesian_case, cast_tuple, "b")()
-    a_asint = gtx.np_as_located_field(IDim)(np.asarray(a).astype(int32))
-    b_asint = gtx.np_as_located_field(IDim)(np.asarray(b).astype(int32))
+    a_asint = gtx.as_field([IDim], np.asarray(a).astype(int32))
+    b_asint = gtx.as_field([IDim], np.asarray(b).astype(int32))
     out_tuple = cases.allocate(cartesian_case, cast_tuple, cases.RETURN)()
     out_nested_tuple = cases.allocate(cartesian_case, cast_nested_tuple, cases.RETURN)()
 
@@ -465,7 +465,7 @@ def test_offset_field(cartesian_case):
         comparison=lambda out, ref: np.all(out == ref),
     )
 
-    assert np.allclose(out.asnumpy(), ref)
+    assert np.allclose(out, ref)
 
 
 def test_nested_tuple_return(cartesian_case):
@@ -955,7 +955,7 @@ def test_where_k_offset(cartesian_case):
     )()
     out = cases.allocate(cartesian_case, fieldop_where_k_offset, "inp")()
 
-    ref = np.where(k_index.asnumpy() > 0, np.roll(inp.asnumpy(), 1, axis=1), 2)
+    ref = np.where(k_index.ndarray > 0, np.roll(inp, 1, axis=1), 2)
 
     cases.verify(cartesian_case, fieldop_where_k_offset, inp, k_index, out=out, ref=ref)
 
