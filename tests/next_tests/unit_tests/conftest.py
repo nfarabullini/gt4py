@@ -31,8 +31,8 @@ except ModuleNotFoundError as e:
     else:
         raise e
 
-import tests.next_tests
-import tests.next_tests.exclusion_matrices as definitions
+import next_tests
+import next_tests.exclusion_matrices as definitions
 
 
 @pytest.fixture(
@@ -83,7 +83,7 @@ def program_processor(request) -> tuple[ppi.ProgramProcessor, bool]:
     processor = processor_id.load()
     assert is_backend == ppi.is_program_backend(processor)
 
-    for marker, skip_mark, msg in tests.next_tests.exclusion_matrices.BACKEND_SKIP_TEST_MATRIX.get(
+    for marker, skip_mark, msg in next_tests.exclusion_matrices.BACKEND_SKIP_TEST_MATRIX.get(
         processor_id, []
     ):
         if request.node.get_closest_marker(marker):
